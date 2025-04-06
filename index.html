@@ -1,0 +1,122 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>AA Bias Survey</title>
+    <script src="https://unpkg.com/jspsych@7.3.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-html-form"></script>
+    <script src="https://hammerjs.github.io/dist/hammer.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <link href="https://unpkg.com/jspsych@7.3.0/css/jspsych.css" rel="stylesheet" />
+    <style>
+      img { touch-action: pan-y; }
+    </style>
+  </head>
+  <body>
+    <div id="jspsych-target"></div>
+    <script>
+      window.onload = function () {
+        const jsPsych = initJsPsych();
+
+        const timeline = [];
+        let participantInfo = {};
+
+        const consent = {
+          type: jsPsychSurveyHtmlForm,
+          preamble: "<h3>Consent Form</h3><p>Please enter your name and date of birth to begin.</p>",
+          html: `
+            <label>Name: <input name="name" type="text" required></label><br><br>
+            <label>Date of Birth: <input name="dob" type="date" required></label>
+          `,
+          button_label: "Begin Survey",
+          on_finish: function(data) {
+            participantInfo = data.response;
+          }
+        };
+        timeline.push(consent);
+
+        const stimuli = [
+          { image: "aa_subject1.jpg", category: "alopecia", context: "Would you hire this person?" },
+          { image: "aa_subject2.jpg", category: "alopecia", context: "Would you invite this person to your team?" },
+          { image: "aa_subject3.jpg", category: "alopecia", context: "Would you go on a date with this person?" },
+          { image: "control_subject1.jpg", category: "control", context: "Would you hire this person?" },
+          { image: "control_subject2.jpg", category: "control", context: "Would you invite this person to your team?" },
+          { image: "control_subject3.jpg", category: "control", context: "Would you go on a date with this person?" }
+        ];
+
+        const shuffledStimuli = jsPsych.randomization.shuffle(stimuli);
+
+        shuffledStimuli.forEach((stim) => {
+          timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: () => `
+              <div style="text-align: center;">
+                <p style="font-size: 20px;">${stim.context}</p>
+                <img src="${stim.image}" id="swipe-image" style="width: 300px; border-radius: 10px;"><br>
+                <p>Swipe left (←) = No &nbsp;&nbsp; Swipe right (→) = Yes</p>
+              </div>
+            `,
+            choices: ["arrowleft", "arrowright"],
+            data: {
+              image_shown: stim.image,
+              image_type: stim.category,
+              question: stim.context
+            },
+            on_start: function() {
+              const target = document.querySelector("#jspsych-content");
+              const mc = new Hammer(target);
+              mc.on("swipeleft swiperight", function(ev) {
+                const key = ev.type === "swipeleft" ? "arrowleft" : "arrowright";
+                jsPsych.pluginAPI.simulateKeyboardEvent(key);
+              });
+            },
+            on_finish: function(data) {
+              data.participant_name = participantInfo.name;
+              data.dob = participantInfo.dob;
+              data.response_direction = data.response;
+              data.reaction_time_ms = data.rt;
+            }
+          });
+        });
+
+        const thank_you = {
+          type: jsPsychHtmlKeyboardResponse,
+          stimulus: "<p>Thank you for participating in our survey!</p><p>Your results should automatically start downloading.</p><p>Press any key or tap to finish.</p>",
+          choices: "ALL_KEYS",
+          on_start: function() {
+            const target = document.querySelector("#jspsych-content");
+            const mc = new Hammer(target);
+            mc.on("tap swipeleft swiperight", function() {
+              jsPsych.finishTrial();
+            });
+          },
+          on_finish: function() {
+            const tidy = jsPsych.data.get().filter({trial_type: 'html-keyboard-response'}).map(d => ({
+              participant_name: d.participant_name,
+              dob: d.dob,
+              image_shown: d.image_shown,
+              image_type: d.image_type,
+              question: d.question,
+              response_direction: d.response_direction,
+              reaction_time_ms: d.reaction_time_ms
+            }));
+            const csv = Papa.unparse(tidy);
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "AA_bias_survey_data.csv";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }
+        };
+        timeline.push(thank_you);
+
+        jsPsych.run(timeline);
+      };
+    </script>
+  </body>
+</html>
