@@ -4,6 +4,7 @@
   <head>
     <meta charset="utf-8">
     <title>AA Bias Survey</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://unpkg.com/jspsych@7.3.0"></script>
     <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response"></script>
     <script src="https://unpkg.com/@jspsych/plugin-survey-html-form"></script>
@@ -11,7 +12,18 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <link href="https://unpkg.com/jspsych@7.3.0/css/jspsych.css" rel="stylesheet" />
     <style>
-      img { touch-action: pan-y; }
+      .card-container {
+        width: 300px;
+        margin: 0 auto;
+        position: relative;
+        transition: transform 0.5s ease-out;
+      }
+      .swipe-left {
+        transform: translateX(-100vw) rotate(-20deg);
+      }
+      .swipe-right {
+        transform: translateX(100vw) rotate(20deg);
+      }
     </style>
   </head>
   <body>
@@ -19,7 +31,6 @@
     <script>
       window.onload = function () {
         const jsPsych = initJsPsych();
-
         const timeline = [];
         let participantInfo = {};
 
@@ -52,48 +63,46 @@
           timeline.push({
             type: jsPsychHtmlKeyboardResponse,
             stimulus: () => `
-              <div style="text-align: center;">
+              <div class="card-container" id="swipe-card">
                 <p style="font-size: 20px;">${stim.context}</p>
-                <img src="${stim.image}" id="swipe-image" style="width: 300px; border-radius: 10px;"><br>
-                <p>Swipe left (←) = No &nbsp;&nbsp; Swipe right (→) = Yes</p>
+                <img src="${stim.image}" style="width: 100%; border-radius: 10px;">
+                <p>Swipe left = No &nbsp;&nbsp; Swipe right = Yes</p>
               </div>
             `,
-            choices: ["arrowleft", "arrowright"],
+            choices: "NO_KEYS",
             data: {
               image_shown: stim.image,
               image_type: stim.category,
               question: stim.context
             },
-            on_start: function() {
-              const target = document.querySelector("#jspsych-content");
-              const mc = new Hammer(target);
+            on_load: () => {
+              const card = document.getElementById("swipe-card");
+              const mc = new Hammer(card);
               mc.on("swipeleft swiperight", function(ev) {
-                const key = ev.type === "swipeleft" ? "arrowleft" : "arrowright";
-                jsPsych.pluginAPI.simulateKeyboardEvent(key);
+                const response = ev.type === "swipeleft" ? "arrowleft" : "arrowright";
+                card.classList.add(ev.type === "swipeleft" ? "swipe-left" : "swipe-right");
+                setTimeout(() => {
+                  jsPsych.finishTrial({
+                    participant_name: participantInfo.name,
+                    dob: participantInfo.dob,
+                    response_direction: response,
+                    reaction_time_ms: performance.now(),
+                    image_shown: stim.image,
+                    image_type: stim.category,
+                    question: stim.context
+                  });
+                }, 500);
               });
-            },
-            on_finish: function(data) {
-              data.participant_name = participantInfo.name;
-              data.dob = participantInfo.dob;
-              data.response_direction = data.response;
-              data.reaction_time_ms = data.rt;
             }
           });
         });
 
         const thank_you = {
           type: jsPsychHtmlKeyboardResponse,
-          stimulus: "<p>Thank you for participating in our survey!</p><p>Your results should automatically start downloading.</p><p>Press any key or tap to finish.</p>",
+          stimulus: "<p>Thank you for participating in our survey!</p><p>Your results are being uploaded. You may now close the browser.</p>",
           choices: "ALL_KEYS",
-          on_start: function() {
-            const target = document.querySelector("#jspsych-content");
-            const mc = new Hammer(target);
-            mc.on("tap swipeleft swiperight", function() {
-              jsPsych.finishTrial();
-            });
-          },
           on_finish: function() {
-            const tidy = jsPsych.data.get().filter({trial_type: 'html-keyboard-response'}).map(d => ({
+            const tidy = jsPsych.data.get().filterCustom(row => row.response_direction !== undefined).map(d => ({
               participant_name: d.participant_name,
               dob: d.dob,
               image_shown: d.image_shown,
@@ -102,15 +111,11 @@
               response_direction: d.response_direction,
               reaction_time_ms: d.reaction_time_ms
             }));
-            const csv = Papa.unparse(tidy);
-            const blob = new Blob([csv], { type: "text/csv" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "AA_bias_survey_data.csv";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            fetch("https://your-google-sheet-webhook-url", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(tidy)
+            });
           }
         };
         timeline.push(thank_you);
@@ -120,3 +125,4 @@
     </script>
   </body>
 </html>
+
